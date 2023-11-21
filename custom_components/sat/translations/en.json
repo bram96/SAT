@@ -140,6 +140,7 @@
         "title": "General",
         "description": "General settings and configurations.",
         "data": {
+          "automatic_gains": "Automatic Gains (recommended)",
           "integral": "Integral (kI)",
           "derivative": "Derivative (kD)",
           "proportional": "Proportional (kP)",
@@ -181,6 +182,7 @@
           "maximum_consumption": "Maximum Consumption",
           "climate_valve_offset": "Climate valve offset",
           "target_temperature_step": "Target Temperature Step",
+          "minimum_setpoint": "Minimum Setpoint",
           "force_pulse_width_modulation": "Force Pulse Width Modulation",
           "sample_time": "Minimum time interval between updates to the PID controller"
         }

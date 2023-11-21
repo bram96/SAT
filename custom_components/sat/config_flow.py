@@ -419,6 +419,8 @@ class SatOptionsFlowHandler(config_entries.OptionsFlow):
             selector.NumberSelectorConfig(min=10, max=100, step=1, unit_of_measurement="°C")
         )
 
+        schema[vol.Required(CONF_AUTOMATIC_GAINS, default=options[CONF_AUTOMATIC_GAINS])] = bool
+
         if not options[CONF_AUTOMATIC_GAINS]:
             schema[vol.Required(CONF_PROPORTIONAL, default=options[CONF_PROPORTIONAL])] = str
             schema[vol.Required(CONF_INTEGRAL, default=options[CONF_INTEGRAL])] = str
@@ -511,6 +513,10 @@ class SatOptionsFlowHandler(config_entries.OptionsFlow):
 
         schema[vol.Required(CONF_TARGET_TEMPERATURE_STEP, default=options[CONF_TARGET_TEMPERATURE_STEP])] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0.1, max=1, step=0.05)
+        )
+
+        schema[vol.Required(CONF_MINIMUM_SETPOINT, default=options[CONF_MINIMUM_SETPOINT])] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=10, max=100, step=1)
         )
 
         schema[vol.Required(CONF_SAMPLE_TIME, default=options[CONF_SAMPLE_TIME])] = selector.TimeSelector()
