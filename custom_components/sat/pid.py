@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from time import monotonic
 from typing import Optional
@@ -5,6 +6,10 @@ from typing import Optional
 from homeassistant.core import State
 
 from .const import *
+
+_LOGGER = logging.getLogger(__name__)
+
+MAX_BOILER_TEMPERATURE_AGE = 300
 
 
 class PID:
@@ -301,8 +306,12 @@ class PID:
         derivative = self.kd * self._raw_derivative
         output = self._last_heating_curve_value + self.proportional + self.integral
 
-        if self._last_boiler_temperature is not None and abs(derivative) > 0 and abs(self._last_boiler_temperature - output) < 3:
-            return 0
+        if self._last_boiler_temperature is not None:
+            if abs(self._last_error) > 0.1 and abs(self._last_boiler_temperature - output) < 3:
+                return 0
+
+            if abs(self._last_error) <= 0.1 and abs(self._last_boiler_temperature - output) < 7:
+                return 0
 
         return round(derivative, 3)
 

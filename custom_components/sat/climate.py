@@ -123,7 +123,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         self.heating_curve = create_heating_curve_controller(config_entry.data, config_options)
 
         # Create PWM controller with given configuration options
-        self.pwm = create_pwm_controller(self.heating_curve, config_entry.data, config_options)
+        self.pwm = create_pwm_controller(self.heating_curve, self._coordinator.minimum_setpoint, config_entry.data, config_options)
 
         self._sensors = []
         self._rooms = None
@@ -163,6 +163,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         self._thermal_comfort = bool(config_options.get(CONF_THERMAL_COMFORT))
         self._climate_valve_offset = float(config_options.get(CONF_CLIMATE_VALVE_OFFSET))
         self._target_temperature_step = float(config_options.get(CONF_TARGET_TEMPERATURE_STEP))
+        self._maximum_relative_modulation = config_options.get(CONF_MAXIMUM_RELATIVE_MODULATION)
         self._sync_climates_with_preset = bool(config_options.get(CONF_SYNC_CLIMATES_WITH_PRESET))
         self._force_pulse_width_modulation = bool(config_options.get(CONF_FORCE_PULSE_WIDTH_MODULATION))
         self._sensor_max_value_age = convert_time_str_to_seconds(config_options.get(CONF_SENSOR_MAX_VALUE_AGE))
@@ -357,6 +358,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
             "optimal_coefficient": self.heating_curve.optimal_coefficient,
             "coefficient_derivative": self.heating_curve.coefficient_derivative,
             "relative_modulation_enabled": self.relative_modulation_enabled,
+            "relative_modulation_value": self.relative_modulation_value,
             "pulse_width_modulation_enabled": self.pulse_width_modulation_enabled,
             "pulse_width_modulation_state": self.pwm.state,
             "pulse_width_modulation_duty_cycle": self.pwm.duty_cycle,
@@ -467,9 +469,8 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
             # Calculate the error value
             error = round(target_temperature - current_temperature, 2)
-            _LOGGER.debug(f"{climate}: current: {current_temperature}, target: {target_temperature}, error: {error}")
 
-            # Add to the list so we calculate the max. later
+            # Add to the list, so we calculate the max. later
             errors.append(error)
 
         return errors
@@ -525,9 +526,6 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
     @property
     def relative_modulation_enabled(self) -> bool:
         """Return True if relative modulation is enabled, False otherwise."""
-        if not self._coordinator.supports_relative_modulation_management:
-            return False
-
         if self.hvac_mode == HVACMode.OFF or self._setpoint is None:
             return True
 
@@ -537,7 +535,11 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         if self._warming_up_data is not None and self._warming_up_data.elapsed < HEATER_STARTUP_TIMEFRAME:
             return False
 
-        return self.max_error > DEADBAND and not self.pulse_width_modulation_enabled
+        return not self.pulse_width_modulation_enabled
+
+    @property
+    def relative_modulation_value(self) -> float:
+        return self._maximum_relative_modulation if self.relative_modulation_enabled else MINIMUM_RELATIVE_MOD
 
     @property
     def summer_simmer_index(self) -> float | None:
@@ -799,7 +801,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
             self.pid.update(
                 error=max_error,
                 heating_curve_value=self.heating_curve.value,
-                boiler_temperature=self.coordinator.boiler_temperature or 0
+                boiler_temperature=self._coordinator.filtered_boiler_temperature
             )
         elif max_error != self.pid.last_error:
             _LOGGER.info(f"Updating error value to {max_error} (Reset: True)")
@@ -822,7 +824,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
             if not self.pulse_width_modulation_enabled or pwm_state == pwm_state.IDLE:
                 _LOGGER.info("Running Normal cycle")
-                self._setpoint = mean(list(self._outputs)[-5:])
+                self._setpoint = max(self._coordinator.minimum_setpoint, mean(list(self._outputs)[-5:]))
             else:
                 _LOGGER.info(f"Running PWM cycle: {pwm_state}")
                 self._setpoint = self._coordinator.minimum_setpoint if pwm_state == pwm_state.ON else MINIMUM_SETPOINT
@@ -835,9 +837,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
     async def _async_control_relative_modulation(self) -> None:
         """Control the relative modulation value based on the conditions"""
         if self._coordinator.supports_relative_modulation_management:
-            await self._coordinator.async_set_control_max_relative_modulation(
-                MAXIMUM_RELATIVE_MOD if self.relative_modulation_enabled else MINIMUM_RELATIVE_MOD
-            )
+            await self._coordinator.async_set_control_max_relative_modulation(self.relative_modulation_value)
 
     async def _async_update_rooms_from_climates(self) -> None:
         """Update the temperature setpoint for each room based on their associated climate entity."""
@@ -889,7 +889,8 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         await self._coordinator.async_control_heating_loop(self)
 
         # Pulse Width Modulation
-        await self.pwm.update(self.requested_setpoint, self._coordinator.minimum_setpoint)
+        if self.pulse_width_modulation_enabled:
+            await self.pwm.update(self.requested_setpoint, self._coordinator.boiler_temperature)
 
         # Set the control setpoint to make sure we always stay in control
         await self._async_control_setpoint(self.pwm.state)
