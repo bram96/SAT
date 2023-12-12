@@ -247,7 +247,8 @@ class SatFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HEATING_SYSTEM, default=OPTIONS_DEFAULTS[CONF_HEATING_SYSTEM]): selector.SelectSelector(
                     selector.SelectSelectorConfig(options=[
                         {"value": HEATING_SYSTEM_RADIATORS, "label": "Radiators"},
-                        {"value": HEATING_SYSTEM_UNDERFLOOR, "label": "Underfloor"}
+                        {"value": HEATING_SYSTEM_HEAT_PUMP, "label": "Heat Pump"},
+                        {"value": HEATING_SYSTEM_UNDERFLOOR, "label": "Underfloor"},
                     ])
                 )
             })

@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from datetime import timedelta
 from statistics import mean
-from time import monotonic
+from time import monotonic, time
 from typing import List
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
@@ -74,11 +74,11 @@ async def async_setup_entry(_hass: HomeAssistant, _config_entry: ConfigEntry, _a
 class SatWarmingUp:
     def __init__(self, error: float, started: int = None):
         self.error = error
-        self.started = started if started is not None else monotonic()
+        self.started = started if started is not None else int(time())
 
     @property
     def elapsed(self):
-        return monotonic() - self.started
+        return int(time()) - self.started
 
 
 class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
@@ -119,21 +119,6 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
         # Create dictionary mapping preset keys to temperature values
         self._presets = {key: config_options[value] for key, value in conf_presets.items() if key in conf_presets}
-
-        # Create PID controller with given configuration options
-        self.pid = create_pid_controller(config_options)
-
-        # Create Heating Curve controller with given configuration options
-        self.heating_curve = create_heating_curve_controller(config_entry.data, config_options)
-
-        # Create PWM controller with given configuration options
-        self.pwm = create_pwm_controller(self.heating_curve, config_entry.data, config_options)
-
-        # Create the Minimum Setpoint controller
-        self._minimum_setpoint = MinimumSetpoint(coordinator)
-
-        # Create Relative Modulation controller
-        self._relative_modulation = RelativeModulation(coordinator)
 
         self._sensors = []
         self._rooms = None
@@ -179,6 +164,21 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         self._force_pulse_width_modulation = bool(config_options.get(CONF_FORCE_PULSE_WIDTH_MODULATION))
         self._sensor_max_value_age = convert_time_str_to_seconds(config_options.get(CONF_SENSOR_MAX_VALUE_AGE))
         self._window_minimum_open_time = convert_time_str_to_seconds(config_options.get(CONF_WINDOW_MINIMUM_OPEN_TIME))
+
+        # Create PID controller with given configuration options
+        self.pid = create_pid_controller(config_options)
+
+        # Create Heating Curve controller with given configuration options
+        self.heating_curve = create_heating_curve_controller(config_entry.data, config_options)
+
+        # Create PWM controller with given configuration options
+        self.pwm = create_pwm_controller(self.heating_curve, config_entry.data, config_options)
+
+        # Create the Minimum Setpoint controller
+        self._minimum_setpoint = MinimumSetpoint(coordinator)
+
+        # Create Relative Modulation controller
+        self._relative_modulation = RelativeModulation(coordinator, self._heating_system)
 
         if self._simulation:
             _LOGGER.warning("Simulation mode!")
@@ -538,7 +538,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         if not self._coordinator.supports_setpoint_management or self._force_pulse_width_modulation:
             return True
 
-        return self._overshoot_protection and self._calculate_control_setpoint() < (self.minimum_setpoint - 2)
+        return self._overshoot_protection and self._calculate_control_setpoint() < self.minimum_setpoint
 
     @property
     def relative_modulation_value(self) -> int:
@@ -562,7 +562,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
     @property
     def adjusted_minimum_setpoint(self) -> float:
-        return self._minimum_setpoint.current([self.error] + self.climate_errors) - 2
+        return self._minimum_setpoint.current([self.error] + self.climate_errors)
 
     def _calculate_control_setpoint(self) -> float:
         """Calculate the control setpoint based on the heating curve and PID output."""
@@ -858,7 +858,7 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
         # Pulse Width Modulation
         if self.pulse_width_modulation_enabled:
-            await self.pwm.update(self.minimum_setpoint, self._calculate_control_setpoint(), self._coordinator.boiler_temperature)
+            await self.pwm.update(self._calculate_control_setpoint(), self._coordinator.boiler_temperature)
 
         # Set the control setpoint to make sure we always stay in control
         await self._async_control_setpoint(self.pwm.state)
