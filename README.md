@@ -290,6 +290,11 @@ Predefined temperature settings for different scenarios or activities.
 
  *Dynamic Minimum Setpoint (Experimental)*: The Boiler flow water temperature may exceed the Overshoot Protection Value during Low-Load Control in multiroom installations ( Some valves may be closed ). We developed a mechanishm that monitors the boiler return water temperature and changes accordingly the Control Setpoint that is sent to the boiler. See *Adjustment Factor for Return Temperature*.
 
+  Choose the version in *General*:
+  - *Return Temperature* (1): uses the boiler return water temperature, so the boiler must report it.
+  - *Boiler Temperature* (2): learns the setpoint from the flow temperature while the burner is on.
+  - *Flow Headroom* (3): for boilers whose minimum output is above the heat loss of the house, so they stop themselves when the flow passes the setpoint by a few degrees. It sets the minimum setpoint to the flow temperature before ignition plus a learned headroom (17 °C at the start). A burn that the boiler stops within 5 minutes raises the headroom, a burn of 15 minutes or more lowers it. The headroom is stored, so it survives a restart. Result: fewer, longer burns instead of many one-minute ones, at the cost of a higher flow temperature in each block.
+
 *Minimum Consumption*: The user can find this value at the boiler's manual. SAT uses this value in order to calculate the instant gas consumption.
 
 *Maximum Consumption*: The user can find this value at the boiler's manual. SAT uses this value in order to calculate the instant gas consumption.

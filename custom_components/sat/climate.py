@@ -40,6 +40,7 @@ from .const import PWMStatus
 from .coordinator import SatDataUpdateCoordinator, DeviceState
 from .entity import SatEntity
 from .errors import Errors, Error
+from .headroom_setpoint import HeadroomMinimumSetpoint
 from .helpers import convert_time_str_to_seconds, is_state_stale, state_age_seconds
 from .manufacturers.geminox import Geminox
 from .pwm import PWMState
@@ -180,6 +181,9 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         # Create the Minimum Setpoint controller
         self.minimum_setpoint = create_minimum_setpoint_controller(config_entry.data, config_options)
 
+        # Create the Flow Headroom controller (dynamic minimum setpoint, version 3)
+        self.headroom_setpoint = HeadroomMinimumSetpoint()
+
         # Create a PWM controller with given configuration options
         self.pwm = create_pwm_controller(self.heating_curve, coordinator.supports_relative_modulation_management, config_entry.data, config_options)
 
@@ -200,6 +204,10 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
         # Restore the previous state if available, or set default values
         await self._restore_previous_state_or_set_defaults()
+
+        # Load the learned flow headroom (dynamic minimum setpoint, version 3)
+        if self._dynamic_minimum_setpoint and self._minimum_setpoint_version == 3:
+            await self.headroom_setpoint.async_initialize(self.hass, self._config_entry.entry_id)
 
         # Update a heating curve if outside temperature is available
         if self.current_outside_temperature is not None:
@@ -565,6 +573,9 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
         if self._minimum_setpoint_version == 1:
             return self.minimum_setpoint.current > self._calculated_setpoint
 
+        if self._minimum_setpoint_version == 3:
+            return self.minimum_setpoint_value > self._calculated_setpoint
+
         return self.pwm.enabled
 
     @property
@@ -589,6 +600,10 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
             # Version 2: Use Pulse Width Modulation controller
             if self._minimum_setpoint_version == 2:
                 return max(self.pwm.setpoint, self._coordinator.minimum_setpoint)
+
+            # Version 3: Use the flow temperature before ignition plus the learned headroom
+            if self._minimum_setpoint_version == 3 and self.headroom_setpoint.current is not None:
+                return min(max(self.headroom_setpoint.current, self._coordinator.minimum_setpoint), self._coordinator.maximum_setpoint)
 
         # Default to coordinator's minimum setpoint
         return self._coordinator.minimum_setpoint
@@ -976,6 +991,10 @@ class SatClimate(SatEntity, ClimateEntity, RestoreEntity):
 
             # Calculate the dynamic minimum setpoint
             self.minimum_setpoint.calculate(self._coordinator.boiler, self.pwm.status)
+
+        # Control our dynamic minimum setpoint (version 3), it also needs the burner-off periods
+        if self._dynamic_minimum_setpoint and self._minimum_setpoint_version == 3:
+            self.headroom_setpoint.update(self._coordinator.boiler)
 
         # If the setpoint is high, turn on the heater
         await self.async_set_heater_state(DeviceState.ON if self._setpoint is not None and self._setpoint > COLD_SETPOINT else DeviceState.OFF)

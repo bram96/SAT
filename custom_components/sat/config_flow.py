@@ -587,6 +587,7 @@ class SatOptionsFlowHandler(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(mode=SelectSelectorMode.DROPDOWN, options=[
                     selector.SelectOptionDict(value="1", label="Return Temperature"),
                     selector.SelectOptionDict(value="2", label="Boiler Temperature"),
+                    selector.SelectOptionDict(value="3", label="Flow Headroom"),
                 ])
             )
 
